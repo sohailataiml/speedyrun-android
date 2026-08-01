@@ -60,6 +60,10 @@
         android:menuCategory="secondary"
         android:title="@string/model_browser_label"/>
     <item
+        android:id="@+id/action_speedrun_dashboard"
+        android:menuCategory="secondary"
+        android:title="@string/speedrun_dashboard_menu_item"/>
+    <item
         android:id="@+id/action_import"
         android:menuCategory="secondary"/>
     <item

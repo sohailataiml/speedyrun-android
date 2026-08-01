@@ -40,6 +40,7 @@ import com.ichi2.anki.observability.undoableOp
 import com.ichi2.anki.performBackupInBackground
 import com.ichi2.anki.reviewreminders.ScheduleRemindersDestination
 import com.ichi2.anki.settings.Prefs
+import com.ichi2.anki.speedrun.ScoreDashboardDestination
 import com.ichi2.anki.syncAuth
 import com.ichi2.anki.utils.Destination
 import kotlinx.coroutines.Dispatchers
@@ -321,6 +322,11 @@ class DeckPickerViewModel :
      * Opens the Manage Note Types screen.
      */
     fun openManageNoteTypes() = launchCatchingIO { flowOfDestination.emit(ManageNoteTypesDestination()) }
+
+    /**
+     * Opens the Speedrun three-score dashboard.
+     */
+    fun openScoreDashboard() = launchCatchingIO { flowOfDestination.emit(ScoreDashboardDestination()) }
 
     /**
      * Opens study options for the provided deck

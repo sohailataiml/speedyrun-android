@@ -341,6 +341,12 @@
             android:exported="false"
             android:configChanges="keyboardHidden|orientation|screenSize"
             />
+        <activity
+            android:name=".speedrun.ScoreDashboard"
+            android:label="@string/speedrun_dashboard_title"
+            android:exported="false"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            />
 
         <!-- The activity that shows up when the user selects a more-info button in the OS permission settings for AnkiDroid
              The more-info button only shows up in the OS settings at or above API 31

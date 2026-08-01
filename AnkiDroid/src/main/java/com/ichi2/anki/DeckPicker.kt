@@ -1361,6 +1361,11 @@ open class DeckPicker :
                 viewModel.openManageNoteTypes()
                 return true
             }
+            R.id.action_speedrun_dashboard -> {
+                Timber.i("DeckPicker:: Speedrun dashboard button pressed")
+                viewModel.openScoreDashboard()
+                return true
+            }
             R.id.action_restore_backup -> {
                 Timber.i("DeckPicker:: Restore from backup button pressed")
                 showDatabaseErrorDialog(DatabaseErrorDialogType.DIALOG_CONFIRM_RESTORE_BACKUP)

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="speedrun_dashboard_title">Speedrun — three scores</string>
+    <string name="speedrun_dashboard_menu_item">Speedrun dashboard</string>
+    <string name="speedrun_dashboard_empty">No topics tagged yet. Add a topic::&lt;name&gt; tag to a card\'s note to see scores here.</string>
+    <string name="speedrun_memory_heading">Memory (DOK 1 — FSRS recall probability)</string>
+    <string name="speedrun_performance_heading">Performance (DOK 2/3 — held-back exam-style questions)</string>
+    <string name="speedrun_readiness_heading">Readiness (DOK 4 — projected exam score)</string>
+    <string name="speedrun_refresh">Refresh</string>
+    <string name="speedrun_last_updated">Last updated %1$s</string>
+
+    <string name="speedrun_memory_headline">Memory: %1$d%%</string>
+    <string name="speedrun_memory_headline_empty">Memory: no reviewed cards yet</string>
+
+    <string name="speedrun_performance_headline">Performance: %1$d%%</string>
+    <string name="speedrun_performance_headline_insufficient">Performance: refusing to score — not enough data</string>
+    <string name="speedrun_performance_headline_unavailable">Performance: unavailable</string>
+    <string name="speedrun_give_up_status_passed">✓ Give-up rule: %1$d graded reviews · %2$d%% topic coverage</string>
+    <string name="speedrun_give_up_status_refused">✗ Give-up rule: %1$d / %2$d graded reviews · %3$d%% / %4$d%% topic coverage</string>
+
+    <string name="speedrun_readiness_headline">Projected MCAT: %1$d</string>
+    <string name="speedrun_readiness_headline_insufficient">Readiness: refusing to score — not enough data</string>
+    <string name="speedrun_readiness_details">Likely range %1$d to %2$d. Confidence: %3$s.</string>
+    <string name="speedrun_confidence_low">Low</string>
+    <string name="speedrun_confidence_medium">Medium</string>
+    <string name="speedrun_confidence_high">High</string>
+</resources>
