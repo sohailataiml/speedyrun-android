@@ -36,6 +36,7 @@ package com.ichi2.anki.speedrun
  * pin down.
  */
 
+import android.content.Context
 import android.view.Gravity
 import androidx.appcompat.app.AlertDialog
 import anki.scheduler.CardAnswer.Rating
@@ -64,8 +65,11 @@ import kotlin.coroutines.resume
 /** Must match rslib/src/stats/socratic_gate.rs's DEFAULT_FAST_THRESHOLD_MS. */
 const val FAST_THRESHOLD_MS = 3_000
 
-private const val MODEL = "claude-haiku-4-5-20251001"
-private const val API_URL = "https://api.anthropic.com/v1/messages"
+// Internal rather than private: CurriculumGrounding.kt's groundedness
+// call shares the same model and endpoint, and two copies would be a
+// silent drift risk.
+internal const val MODEL = "claude-haiku-4-5-20251001"
+internal const val API_URL = "https://api.anthropic.com/v1/messages"
 
 enum class GateDecision {
     AUTOMATED_MASTERY,
@@ -204,6 +208,57 @@ private fun generateBridge(
     }
 }
 
+/** A bridge that has passed the leak check and, where the curriculum
+ * corpus covers the topic, been judged for groundedness.
+ * [grounded] is deliberately nullable: null means the check did not run
+ * because the corpus can't speak to this card's topic, which is a
+ * different statement from "checked and failed". */
+data class VerifiedBridge(
+    val content: BridgeContent,
+    val grounded: Boolean?,
+    val groundedReasoning: String,
+)
+
+/** Raised when a bridge question still leaks the gold answer after one
+ * regeneration. Callers skip showing a bridge entirely rather than
+ * surfacing an error - the student did nothing wrong. */
+class BridgeLeakedException : Exception("bridge question leaked the gold answer after one retry")
+
+/**
+ * generate -> leak-check (hard gate, one retry) -> grounding-check (soft
+ * signal, only when the corpus covers this topic). Mirrors desktop's
+ * `_generate_and_verify_bridge`. Blocking; callers run it on IO.
+ *
+ * The asymmetry is deliberate. The leak check is topic-independent (pure
+ * n-gram overlap against this card's own answer), so it is always
+ * meaningful and is enforced. Grounding depends on a corpus that only
+ * covers the Krebs cycle, so it is reported, never enforced - making it a
+ * gate would silently kill bridges on every other topic.
+ */
+private fun generateAndVerifyBridge(
+    context: Context,
+    apiKey: String,
+    front: String,
+    back: String,
+): VerifiedBridge {
+    var content = generateBridge(apiKey, front, back)
+    if (leaksGoldAnswer(content.bridgeQuestion, back)) {
+        content = generateBridge(apiKey, front, back)
+        if (leaksGoldAnswer(content.bridgeQuestion, back)) throw BridgeLeakedException()
+    }
+
+    var grounded: Boolean? = null
+    var reasoning = ""
+    val chunks = loadCurriculumChunks(context)
+    val (passages, gateScore) = retrieveForGrounding(front, back, chunks)
+    if (passages.isNotEmpty() && gateScore >= GROUNDING_COVERAGE_THRESHOLD) {
+        val result = checkGrounded(apiKey, content, passages)
+        grounded = result.grounded
+        reasoning = result.reasoning
+    }
+    return VerifiedBridge(content, grounded, reasoning)
+}
+
 /**
  * Called from [Reviewer.displayCardAnswer], before the back is revealed.
  * Suspends until any gating dialogs this shows are dismissed; the caller
@@ -242,11 +297,16 @@ suspend fun maybeGateBeforeAnswer(
     val back = stripHtml(card.answer(col))
     val result =
         runCatching {
-            withContext(Dispatchers.IO) { generateBridge(apiKey, front, back) }
+            withContext(Dispatchers.IO) { generateAndVerifyBridge(reviewer, apiKey, front, back) }
         }
     result
-        .onSuccess { content -> showBridgeQuestionDialogAndAwaitDismissal(reviewer, "before revealing", content) }
-        .onFailure { e -> Timber.w(e, "Speedrun Socratic bridge generation failed") }
+        .onSuccess { verified -> showBridgeQuestionDialogAndAwaitDismissal(reviewer, "before revealing", verified) }
+        .onFailure { e ->
+            // A leak that survived a retry means no usable bridge exists
+            // for this card right now; skip silently rather than show the
+            // student an error they can't act on.
+            if (e !is BridgeLeakedException) Timber.w(e, "Speedrun Socratic bridge generation failed")
+        }
 
     // Suppress the post-grade Dangerous Error/Productive Struggle check
     // for this same card - it already got its bridge, pre-reveal.
@@ -276,6 +336,39 @@ private suspend fun showConfidenceDialogAndAwaitChoice(reviewer: Reviewer): Bool
         dialog.setOnCancelListener { resumeOnce(null) }
         continuation.invokeOnCancellation { dialog.dismiss() }
     }
+
+/**
+ * Does the bridge *question* give away the gold answer before the
+ * student has had a chance to reason? Checks only the question - not the
+ * answer/synthesis, which are shown after Reveal and are explicitly
+ * supposed to name the fact ("a synthesis connecting it back to the
+ * card's original fact"). Flagging those would just measure the
+ * synthesis doing its job.
+ *
+ * Two real bugs are baked into this shape, both caught by the standalone
+ * agent's adversarial tests (speedrun/tools/socratic-agent/): a fixed
+ * 6-word n-gram can't form at all against short gold answers like
+ * "Citrate synthase", so short answers fall back to whole-phrase
+ * containment; and an earlier version checking answer+synthesis flagged
+ * 6 of 10 real cards for correct behaviour.
+ */
+private fun leaksGoldAnswer(
+    bridgeQuestion: String,
+    goldBack: String,
+): Boolean {
+    val gold = TOKENS_RE.findAll(goldBack.lowercase()).map { it.value }.toList()
+    val bridge = TOKENS_RE.findAll(bridgeQuestion.lowercase()).map { it.value }.toList()
+    if (gold.isEmpty()) return false
+    if (gold.size < LEAK_NGRAM_SIZE) {
+        return (0..bridge.size - gold.size).any { i -> bridge.subList(i, i + gold.size) == gold }
+    }
+    val goldNgrams = (0..gold.size - LEAK_NGRAM_SIZE).map { gold.subList(it, it + LEAK_NGRAM_SIZE) }.toSet()
+    val bridgeNgrams = (0..bridge.size - LEAK_NGRAM_SIZE).map { bridge.subList(it, it + LEAK_NGRAM_SIZE) }.toSet()
+    return goldNgrams.intersect(bridgeNgrams).isNotEmpty()
+}
+
+private const val LEAK_NGRAM_SIZE = 6
+private val TOKENS_RE = Regex("[a-z0-9]+")
 
 /** Everything the bridge needs, captured synchronously at the correct
  * moment - before grading mutates [card]/[col] state and before
@@ -331,12 +424,14 @@ suspend fun awaitSocraticBridge(
 ) {
     val result =
         runCatching {
-            withContext(Dispatchers.IO) { generateBridge(pending.apiKey, pending.front, pending.back) }
+            withContext(Dispatchers.IO) {
+                generateAndVerifyBridge(reviewer, pending.apiKey, pending.front, pending.back)
+            }
         }
     result
-        .onSuccess { content -> showBridgeQuestionDialogAndAwaitDismissal(reviewer, pending.label, content) }
+        .onSuccess { verified -> showBridgeQuestionDialogAndAwaitDismissal(reviewer, pending.label, verified) }
         .onFailure { e ->
-            Timber.w(e, "Speedrun Socratic bridge generation failed")
+            if (e !is BridgeLeakedException) Timber.w(e, "Speedrun Socratic bridge generation failed")
         }
 }
 
@@ -350,18 +445,29 @@ suspend fun awaitSocraticBridge(
 private suspend fun showBridgeQuestionDialogAndAwaitDismissal(
     reviewer: Reviewer,
     label: String,
-    content: BridgeContent,
+    verified: VerifiedBridge,
 ) {
     suspendCancellableCoroutine<Unit> { continuation ->
         fun resumeOnce() {
             if (continuation.isActive) continuation.resume(Unit)
         }
+        // Three distinct states, shown distinctly. Silence must not be
+        // ambiguous between "checked and passed" and "never checked" -
+        // the corpus only covers the Krebs cycle, so "never checked" is
+        // the common case and a student has no other way to tell them
+        // apart.
+        val badge =
+            when (verified.grounded) {
+                true -> "\n\n✓ Verified against the curriculum source."
+                false -> "\n\n⚠ Not verified against the curriculum source for this topic."
+                null -> ""
+            }
         val dialog =
             AlertDialog.Builder(reviewer).show {
                 title(text = "Speedrun — Socratic bridge ($label)")
-                message(text = content.bridgeQuestion)
+                message(text = verified.content.bridgeQuestion + badge)
                 positiveButton(text = "Reveal") {
-                    showBridgeAnswerDialog(reviewer, label, content, onClose = ::resumeOnce)
+                    showBridgeAnswerDialog(reviewer, label, verified.content, onClose = ::resumeOnce)
                 }
                 negativeButton(text = "Close") { resumeOnce() }
                 cancelable(true)
