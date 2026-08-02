@@ -93,7 +93,25 @@ fun socraticGateDecision(
 fun requiresSocraticBridge(decision: GateDecision): Boolean =
     decision == GateDecision.DANGEROUS_ERROR || decision == GateDecision.PRODUCTIVE_STRUGGLE
 
-private fun stripHtml(text: String): String = text.replace(Regex("<[^<]+?>"), " ").trim()
+/**
+ * Card text as a human would read it. Drops `<style>`/`<script>` blocks
+ * *including their contents* before stripping the remaining tags - same
+ * fix as the desktop port's `_strip_html`, and for the same real bug
+ * found by instrumenting the live desktop gate: `card.question(col)`
+ * returns the fully rendered card, which begins with the notetype's CSS
+ * block, and a tags-only strip leaves the raw CSS rules behind as card
+ * "text" (`.card { font-family: arial; font-size: 20p...`). That
+ * silently polluted the leak check's notion of the gold answer with
+ * tokens like "card"/"color"/"arial" and wasted prompt tokens on styling
+ * noise. Whitespace is collapsed so the model and the n-gram check see
+ * clean prose.
+ */
+private fun stripHtml(text: String): String =
+    text
+        .replace(Regex("<(style|script)\\b[^>]*>.*?</\\1\\s*>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), " ")
+        .replace(Regex("<[^<]+?>"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
 data class BridgeContent(
     val bridgeQuestion: String,
