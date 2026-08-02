@@ -137,6 +137,15 @@ android {
 
         def apiKey = properties.getProperty("ANALYTICS_API_KEY") ?: System.getenv("ANALYTICS_API_KEY") ?: "DUMMY_API_XXX"
         buildConfigField "String", "ANALYTICS_API_KEY", "\"${apiKey}\""
+
+        // Speedrun addition: the Socratic Gatekeeper (Brainlift v2) needs a
+        // real Claude API call to generate bridge questions. Same
+        // local.properties/env-var pattern as ANALYTICS_API_KEY above;
+        // empty string (not a dummy) so the feature silently no-ops on
+        // contributor builds without a key, matching the desktop app's
+        // same "silently do nothing if unset" behavior.
+        def anthropicApiKey = properties.getProperty("ANTHROPIC_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY") ?: ""
+        buildConfigField "String", "ANTHROPIC_API_KEY", "\"${anthropicApiKey}\""
     }
     signingConfigs {
         release {

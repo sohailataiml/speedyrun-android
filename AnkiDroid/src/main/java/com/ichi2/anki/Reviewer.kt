@@ -107,6 +107,7 @@ import com.ichi2.anki.servicelayer.NoteService.toggleMark
 import com.ichi2.anki.settings.Prefs
 import com.ichi2.anki.settings.enums.DayTheme
 import com.ichi2.anki.snackbar.showSnackbar
+import com.ichi2.anki.speedrun.maybeShowSocraticBridge
 import com.ichi2.anki.startup.ensureStorageIsReady
 import com.ichi2.anki.ui.internationalization.sentenceCase
 import com.ichi2.anki.ui.windows.reviewer.ReviewerFragment
@@ -1230,6 +1231,11 @@ open class Reviewer :
         val state = queueState!!
         val cardId = currentCard!!.id
         Timber.d("answerCardInner: $cardId $rating")
+        // Speedrun addition: the Socratic Gatekeeper (Brainlift v2). Captured
+        // before any state mutation below, same "the card just answered" card
+        // the desktop hook fires with. Fire-and-forget (its own coroutine) so
+        // a slow API call never delays card advancement.
+        maybeShowSocraticBridge(this, getColUnsafe, currentCard!!, rating)
         var wasLeech = false
         undoableOp(this) {
             sched.answerCard(state, rating).also {
