@@ -36,8 +36,8 @@ package com.ichi2.anki.speedrun
  * pin down.
  */
 
+import android.view.Gravity
 import androidx.appcompat.app.AlertDialog
-import androidx.lifecycle.lifecycleScope
 import anki.scheduler.CardAnswer.Rating
 import com.ichi2.anki.BuildConfig
 import com.ichi2.anki.Reviewer
@@ -50,7 +50,7 @@ import com.ichi2.utils.positiveButton
 import com.ichi2.utils.show
 import com.ichi2.utils.title
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -59,6 +59,7 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import kotlin.coroutines.resume
 
 /** Must match rslib/src/stats/socratic_gate.rs's DEFAULT_FAST_THRESHOLD_MS. */
 const val FAST_THRESHOLD_MS = 3_000
@@ -186,60 +187,170 @@ private fun generateBridge(
 }
 
 /**
- * Called from [Reviewer.answerCardInner] right after a card is answered.
- * Silently does nothing if no API key is configured or the gate doesn't call
- * for an intervention - never blocks or delays the normal review flow, since
- * the API call and dialog run in their own coroutine rather than being
- * awaited inline.
+ * Called from [Reviewer.displayCardAnswer], before the back is revealed.
+ * Suspends until any gating dialogs this shows are dismissed; the caller
+ * always reveals the answer immediately after this returns, whether or
+ * not gating did anything.
+ *
+ * A genuine "fast + confident + wrong" Dangerous Error can only be caught
+ * after grading - there's no way to know the answer is wrong before it's
+ * shown. That case still goes through [prepareSocraticBridge] /
+ * [awaitSocraticBridge] below, unchanged, once the reveal proceeds
+ * normally here.
  */
-fun maybeShowSocraticBridge(
+suspend fun maybeGateBeforeAnswer(
     reviewer: Reviewer,
     col: Collection,
     card: Card,
-    rating: Rating,
 ) {
     val apiKey = BuildConfig.ANTHROPIC_API_KEY
     if (apiKey.isBlank()) return
 
     val takenMillis = card.timeTaken(col)
+    val fast = takenMillis <= FAST_THRESHOLD_MS
+
+    val confident = showConfidenceDialogAndAwaitChoice(reviewer)
+    if (fast || confident == null) {
+        // Fast (Automated Mastery / Lucky Guess row), or the dialog was
+        // dismissed without a choice - fail open, reveal normally rather
+        // than getting the student stuck on an unanswered prompt.
+        return
+    }
+
+    // Slow, regardless of confidence (brainlift.md §4's "Slow + any
+    // confidence" row -> Productive Struggle): withhold the back, show
+    // the bridge first.
+    val front = stripHtml(card.question(col))
+    val back = stripHtml(card.answer(col))
+    val result =
+        runCatching {
+            withContext(Dispatchers.IO) { generateBridge(apiKey, front, back) }
+        }
+    result
+        .onSuccess { content -> showBridgeQuestionDialogAndAwaitDismissal(reviewer, "before revealing", content) }
+        .onFailure { e -> Timber.w(e, "Speedrun Socratic bridge generation failed") }
+
+    // Suppress the post-grade Dangerous Error/Productive Struggle check
+    // for this same card - it already got its bridge, pre-reveal.
+    reviewer.speedrunBridgeShownForCardId = card.id
+}
+
+/** Shown in place of the normal answer reveal. Captures a self-reported
+ * confidence tap before the back is shown - see brainlift.md §4's
+ * decision table, which conditions the withhold-vs-reveal choice on
+ * latency and this confidence signal, not just correctness (which isn't
+ * knowable pre-reveal anyway). Returns true/false for the tapped
+ * choice, or null if dismissed without one. */
+private suspend fun showConfidenceDialogAndAwaitChoice(reviewer: Reviewer): Boolean? =
+    suspendCancellableCoroutine { continuation ->
+        fun resumeOnce(value: Boolean?) {
+            if (continuation.isActive) continuation.resume(value)
+        }
+        val dialog =
+            AlertDialog.Builder(reviewer).show {
+                title(text = "Speedrun — before we reveal")
+                message(text = "How confident are you in your answer?")
+                positiveButton(text = "I've got it") { resumeOnce(true) }
+                negativeButton(text = "Not sure") { resumeOnce(false) }
+                cancelable(true)
+            }
+        dialog.anchorUnderQuestion()
+        dialog.setOnCancelListener { resumeOnce(null) }
+        continuation.invokeOnCancellation { dialog.dismiss() }
+    }
+
+/** Everything the bridge needs, captured synchronously at the correct
+ * moment - before grading mutates [card]/[col] state and before
+ * [Card.timeTaken] could be skewed by any later delay. */
+data class PendingSocraticBridge(
+    val apiKey: String,
+    val front: String,
+    val back: String,
+    val label: String,
+)
+
+/**
+ * Called from [Reviewer.answerCardInner] right after a card is answered,
+ * before grading mutates any state. Returns null (no bridge) if no API key
+ * is configured or the gate doesn't call for an intervention. Cheap and
+ * synchronous - the actual API call happens later, in [awaitSocraticBridge].
+ */
+fun prepareSocraticBridge(
+    card: Card,
+    col: Collection,
+    rating: Rating,
+    reviewer: Reviewer,
+): PendingSocraticBridge? {
+    val apiKey = BuildConfig.ANTHROPIC_API_KEY
+    if (apiKey.isBlank()) return null
+    if (reviewer.speedrunBridgeShownForCardId == card.id) return null
+
+    val takenMillis = card.timeTaken(col)
     val decision = socraticGateDecision(takenMillis, rating)
-    if (!requiresSocraticBridge(decision)) return
+    if (!requiresSocraticBridge(decision)) return null
 
     val front = stripHtml(card.question(col))
     val back = stripHtml(card.answer(col))
     val label = if (decision == GateDecision.DANGEROUS_ERROR) "Dangerous error" else "Worth a closer look"
+    return PendingSocraticBridge(apiKey, front, back, label)
+}
 
-    reviewer.lifecycleScope.launch {
-        val result =
-            runCatching {
-                withContext(Dispatchers.IO) { generateBridge(apiKey, front, back) }
-            }
-        result
-            .onSuccess { content -> showBridgeQuestionDialog(reviewer, label, content) }
-            .onFailure { e ->
-                Timber.w(e, "Speedrun Socratic bridge generation failed")
-            }
-    }
+/**
+ * Generates the bridge content and blocks (suspends) until the user
+ * dismisses it. Must be awaited, not launched fire-and-forget: a
+ * fire-and-forget coroutine lets [Reviewer.answerCardInner] return and
+ * the reviewer advance to the *next* card before the async API call
+ * resolves, so the bridge dialog would pop up over a question it isn't
+ * about, looking like a stale "hint for the previous question." Calling
+ * this suspend function from answerCardInner - after grading has already
+ * been submitted, same as the desktop hook's placement after a
+ * successful `answer_card` RPC - holds the current card on screen until
+ * the student has actually engaged with the bridge.
+ */
+suspend fun awaitSocraticBridge(
+    reviewer: Reviewer,
+    pending: PendingSocraticBridge,
+) {
+    val result =
+        runCatching {
+            withContext(Dispatchers.IO) { generateBridge(pending.apiKey, pending.front, pending.back) }
+        }
+    result
+        .onSuccess { content -> showBridgeQuestionDialogAndAwaitDismissal(reviewer, pending.label, content) }
+        .onFailure { e ->
+            Timber.w(e, "Speedrun Socratic bridge generation failed")
+        }
 }
 
 /** Two-stage reveal via two sequential AlertDialogs - same interaction shape
  * as the card flip itself: the bridge question first, then (on demand) the
  * bridge answer and synthesis. Never the plain card answer restated, which is
  * the whole point of the mechanism (see socratic-gate-mvp.md's n=90 result).
+ * Suspends until the student closes the answer stage (or cancels earlier),
+ * so the caller can hold card advancement until then.
  */
-private fun showBridgeQuestionDialog(
+private suspend fun showBridgeQuestionDialogAndAwaitDismissal(
     reviewer: Reviewer,
     label: String,
     content: BridgeContent,
 ) {
-    AlertDialog.Builder(reviewer).show {
-        title(text = "Speedrun — Socratic bridge ($label)")
-        message(text = content.bridgeQuestion)
-        positiveButton(text = "Reveal") {
-            showBridgeAnswerDialog(reviewer, label, content)
+    suspendCancellableCoroutine<Unit> { continuation ->
+        fun resumeOnce() {
+            if (continuation.isActive) continuation.resume(Unit)
         }
-        negativeButton(text = "Close")
-        cancelable(true)
+        val dialog =
+            AlertDialog.Builder(reviewer).show {
+                title(text = "Speedrun — Socratic bridge ($label)")
+                message(text = content.bridgeQuestion)
+                positiveButton(text = "Reveal") {
+                    showBridgeAnswerDialog(reviewer, label, content, onClose = ::resumeOnce)
+                }
+                negativeButton(text = "Close") { resumeOnce() }
+                cancelable(true)
+            }
+        dialog.anchorUnderQuestion()
+        dialog.setOnCancelListener { resumeOnce() }
+        continuation.invokeOnCancellation { dialog.dismiss() }
     }
 }
 
@@ -247,11 +358,31 @@ private fun showBridgeAnswerDialog(
     reviewer: Reviewer,
     label: String,
     content: BridgeContent,
+    onClose: () -> Unit,
 ) {
-    AlertDialog.Builder(reviewer).show {
-        title(text = "Speedrun — Socratic bridge ($label)")
-        message(text = "${content.bridgeAnswer}\n\n${content.synthesis}")
-        positiveButton(text = "Close")
-        cancelable(true)
+    val dialog =
+        AlertDialog.Builder(reviewer).show {
+            title(text = "Speedrun — Socratic bridge ($label)")
+            message(text = "${content.bridgeAnswer}\n\n${content.synthesis}")
+            positiveButton(text = "Close") { onClose() }
+            cancelable(true)
+        }
+    dialog.anchorUnderQuestion()
+    dialog.setOnCancelListener { onClose() }
+}
+
+/** Anchored near the top of the screen, roughly where the card's answer
+ * renders below its question, with the default background dim kept. For
+ * the pre-reveal path (maybeGateBeforeAnswer) there's nothing to hide yet
+ * - the answer hasn't been shown at all. For the post-grade path
+ * (prepareSocraticBridge/awaitSocraticBridge - the "fast + confident +
+ * wrong" Dangerous Error case), the answer *is* already on screen
+ * (Android's review flow requires seeing it to grade), and the dim
+ * obscures it rather than leaving it readable beside the bridge. */
+private fun AlertDialog.anchorUnderQuestion() {
+    window?.apply {
+        setGravity(Gravity.TOP)
+        val yOffsetPx = (280 * context.resources.displayMetrics.density).toInt()
+        attributes = attributes.apply { y = yOffsetPx }
     }
 }

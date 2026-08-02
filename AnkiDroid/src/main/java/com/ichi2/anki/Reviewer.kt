@@ -107,7 +107,9 @@ import com.ichi2.anki.servicelayer.NoteService.toggleMark
 import com.ichi2.anki.settings.Prefs
 import com.ichi2.anki.settings.enums.DayTheme
 import com.ichi2.anki.snackbar.showSnackbar
-import com.ichi2.anki.speedrun.maybeShowSocraticBridge
+import com.ichi2.anki.speedrun.awaitSocraticBridge
+import com.ichi2.anki.speedrun.maybeGateBeforeAnswer
+import com.ichi2.anki.speedrun.prepareSocraticBridge
 import com.ichi2.anki.startup.ensureStorageIsReady
 import com.ichi2.anki.ui.internationalization.sentenceCase
 import com.ichi2.anki.ui.windows.reviewer.ReviewerFragment
@@ -1231,11 +1233,11 @@ open class Reviewer :
         val state = queueState!!
         val cardId = currentCard!!.id
         Timber.d("answerCardInner: $cardId $rating")
-        // Speedrun addition: the Socratic Gatekeeper (Brainlift v2). Captured
-        // before any state mutation below, same "the card just answered" card
-        // the desktop hook fires with. Fire-and-forget (its own coroutine) so
-        // a slow API call never delays card advancement.
-        maybeShowSocraticBridge(this, getColUnsafe, currentCard!!, rating)
+        // Speedrun addition: the Socratic Gatekeeper (Brainlift v2). Decision
+        // inputs (latency/correctness) captured now, before any state
+        // mutation below - see prepareSocraticBridge's doc comment for why
+        // this can't be deferred to after the dialog.
+        val pendingBridge = prepareSocraticBridge(currentCard!!, getColUnsafe, rating, this)
         var wasLeech = false
         undoableOp(this) {
             sched.answerCard(state, rating).also {
@@ -1253,6 +1255,15 @@ open class Reviewer :
                     }
                 showSnackbar(leechMessage, Snackbar.LENGTH_SHORT)
             }
+        }
+
+        // Speedrun addition: awaited (not fire-and-forget) so the bridge
+        // dialog blocks card advancement until dismissed - otherwise the
+        // reviewer flips to the next card before the async bridge content
+        // arrives, making it look like the bridge is for the wrong
+        // question. Placed after grading, same as the desktop hook.
+        if (pendingBridge != null) {
+            awaitSocraticBridge(this, pendingBridge)
         }
 
         // showing the timebox reached dialog if the timebox is reached
@@ -1295,6 +1306,11 @@ open class Reviewer :
         super.displayCardQuestion()
     }
 
+    /** Speedrun addition: set when the Socratic Gatekeeper already showed
+     * a pre-reveal bridge for this card, so the post-grade check in
+     * answerCardInner doesn't show a second one for the same card. */
+    var speedrunBridgeShownForCardId: CardId? = null
+
     @VisibleForTesting
     override fun displayCardAnswer() {
         if (queueState?.customSchedulingJs?.isEmpty() == true) {
@@ -1309,7 +1325,16 @@ open class Reviewer :
         if (stopTimerOnAnswer) {
             answerTimer.pause()
         }
-        super.displayCardAnswer()
+        // Speedrun addition: the Socratic Gatekeeper may take over before
+        // the answer is revealed - e.g. withhold it behind a confidence
+        // tap and bridge question - rather than showing it immediately.
+        // See maybeGateBeforeAnswer's doc comment for the full decision
+        // logic. Always reveals afterward, whether or not gating did
+        // anything.
+        lifecycleScope.launch {
+            maybeGateBeforeAnswer(this@Reviewer, getColUnsafe, currentCard!!)
+            super.displayCardAnswer()
+        }
     }
 
     private fun runStateMutationHook() {
