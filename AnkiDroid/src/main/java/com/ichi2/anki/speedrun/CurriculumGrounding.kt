@@ -17,18 +17,25 @@
 package com.ichi2.anki.speedrun
 
 /*
- * Speedrun addition: curriculum grounding for Socratic bridges - the Kotlin
- * port of qt/aqt/speedrun_socratic_gate.py's retrieval + grounding check.
- * Answers PRD §3's non-negotiable ("every AI output traces to a named
- * source, passes an eval") for the one AI output that never had it: the
- * bridge shown live during review.
+ * Speedrun addition: curriculum grounding and answer-leak checking - the
+ * Kotlin counterpart of qt/aqt/speedrun_grounding.py.
  *
- * The corpus ships as an app asset (assets/speedrun/source_material.md, a
- * copy of the desktop repo's speedrun/ai/source_material.md), because
- * Android can't reach the desktop repo's working tree. It covers the Krebs
- * cycle only, which is exactly why grounding is a *soft* signal here and
- * not a gate: making it a hard requirement would silently kill bridges on
- * every other topic. See speedrun/docs/socratic-gate-mvp.md.
+ * Written for the v2 Socratic bridge, kept when v3 retired that feature,
+ * because the checks outlived what motivated them. Under the v3
+ * Latency-Volatility thesis the AI is a *proctor* rather than a tutor: it
+ * generates context-shifted "jitter" variants to test far transfer instead
+ * of generating hints. A jitter variant has the same two ways of being
+ * worthless as a bridge did - inventing facts, or handing over the answer -
+ * so it needs the same two checks. Nothing here knows what a bridge is.
+ *
+ * Answers PRD §3's non-negotiable ("every AI output traces to a named
+ * source, passes an eval") for AI output generated live during review.
+ *
+ * The corpus ships as app assets driven by assets/speedrun/sources.json,
+ * mirroring the desktop repo's speedrun/ai/ directory, because Android
+ * can't reach the desktop repo's working tree. Grounding stays a *soft*
+ * signal, never a gate: the corpus covers six topics, so making it a hard
+ * requirement would silently kill output on every other topic.
  *
  * Retrieval is deliberately NOT cosine similarity. The desktop version
  * started that way and got it backwards on real cards - cosine rewards
@@ -36,7 +43,7 @@ package com.ichi2.anki.speedrun
  * chunks, ranking an out-of-corpus ribosome card above a genuine
  * citric-acid-cycle one. This uses IDF-weighted concept coverage scored
  * separately over the card's front and its answer, taking the minimum,
- * because the *answer* is the fact a bridge is grounded in.
+ * because the *answer* is the fact generated material is grounded in.
  */
 
 import android.content.Context
@@ -50,12 +57,32 @@ import java.nio.charset.StandardCharsets
 import kotlin.math.ln
 import kotlin.math.min
 
-/** Matches qt/aqt/speedrun_socratic_gate.py's GROUNDING_COVERAGE_THRESHOLD.
- * Real in-corpus cards score 0.37-1.00; cards on uncovered topics score
- * exactly 0.00, so 0.25 sits clear of both edges. */
+/** Matches qt/aqt/speedrun_grounding.py's GROUNDING_COVERAGE_THRESHOLD.
+ *
+ * Chosen against a 9-chunk Krebs-only corpus where in-corpus cards scored
+ * 0.37-1.00 and uncovered topics scored exactly 0.00. That gap has since
+ * narrowed and the threshold has NOT been re-tuned: the corpus is now 54
+ * chunks across six topics, and an out-of-corpus card can pick up partial
+ * credit from shared vocabulary (a ribosome/SRP card now scores 0.216,
+ * only 0.034 below the line). Ordering is still correct but the margin is
+ * thin. See the desktop module's comment for why it was left rather than
+ * nudged to fit one example. */
 const val GROUNDING_COVERAGE_THRESHOLD = 0.25
 
-private const val CORPUS_ASSET_PATH = "speedrun/source_material.md"
+/** The manifest, not a single filename. Both platforms drive the corpus
+ * off speedrun/ai/sources.json so that adding curriculum material
+ * extends retrieval on desktop and mobile at once. Loading only the
+ * Krebs file meant every chem/phys card retrieved nothing and grounding
+ * reported "not checked" - a silent abstention that looks exactly like a
+ * passing card unless you inspect it. */
+// Previously `internal` in SocraticGate.kt, which v3 deletes. Owned here
+// now; must stay in step with the desktop module's copies in
+// qt/aqt/speedrun_grounding.py.
+const val MODEL = "claude-haiku-4-5-20251001"
+const val API_URL = "https://api.anthropic.com/v1/messages"
+
+private const val SOURCES_MANIFEST_PATH = "speedrun/sources.json"
+private const val ASSET_DIR = "speedrun"
 
 /** Must match the desktop STOPWORDS set. Terms carrying no information
  * about what a card is *about* - counting them would let generic phrasing
@@ -71,7 +98,12 @@ private val STOPWORDS =
             "two three four five called sometimes generally considered major primary"
     ).split(" ").toSet()
 
-private val CHUNK_RE = Regex("^## (kc-\\d+): .+?\\n(.*?)(?=^## |\\z)", setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL))
+private fun chunkRegex(prefix: String) =
+    Regex(
+        "^## (${Regex.escape(prefix)}-\\d+): .+?\\n(.*?)(?=^## |\\z)",
+        setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL),
+    )
+
 private val TOKEN_RE = Regex("[a-z0-9]+")
 
 data class CurriculumChunk(
@@ -95,18 +127,34 @@ fun loadCurriculumChunks(context: Context): List<CurriculumChunk> {
     cachedChunks?.let { return it }
     val parsed =
         runCatching {
-            val raw =
+            val manifest =
                 context.assets
-                    .open(CORPUS_ASSET_PATH)
+                    .open(SOURCES_MANIFEST_PATH)
                     .bufferedReader(StandardCharsets.UTF_8)
                     .use { it.readText() }
-            CHUNK_RE
-                .findAll(raw)
-                .map { m ->
+            val sources = JSONObject(manifest).getJSONArray("sources")
+            val chunks = mutableListOf<CurriculumChunk>()
+            for (i in 0 until sources.length()) {
+                val source = sources.getJSONObject(i)
+                val file = source.getString("file")
+                val prefix = source.getString("chunk_prefix")
+                // One unreadable source document must not cost us the
+                // whole corpus - degrade by that document, not globally.
+                val raw =
+                    runCatching {
+                        context.assets
+                            .open("$ASSET_DIR/$file")
+                            .bufferedReader(StandardCharsets.UTF_8)
+                            .use { it.readText() }
+                    }.onFailure { Timber.w(it, "Speedrun: source document %s unavailable", file) }
+                        .getOrNull() ?: continue
+                chunkRegex(prefix).findAll(raw).forEach { m ->
                     val text = m.groupValues[2].trim()
-                    CurriculumChunk(m.groupValues[1], text, contentTerms(text))
-                }.toList()
-        }.onFailure { Timber.w(it, "Speedrun: curriculum corpus asset unavailable") }
+                    chunks.add(CurriculumChunk(m.groupValues[1], text, contentTerms(text)))
+                }
+            }
+            chunks.toList()
+        }.onFailure { Timber.w(it, "Speedrun: curriculum manifest unavailable") }
             .getOrDefault(emptyList())
     cachedChunks = parsed
     return parsed
@@ -204,18 +252,20 @@ private const val GROUNDEDNESS_SYSTEM_PROMPT =
 private val GROUNDEDNESS_RE =
     Regex("GROUNDED:\\s*(yes|no)\\s*\\nREASONING:\\s*(.+)", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
-/** Blocking HTTP call - callers must run this off the main thread. */
+/** Blocking HTTP call - callers must run this off the main thread.
+ *
+ * Takes the generated material as a plain string rather than a
+ * bridge-shaped struct: v3's jitter variants have a different shape from
+ * v2's bridges, and this check never cared about the shape - only about
+ * whether the claims are supported by the passages.
+ */
 fun checkGrounded(
     apiKey: String,
-    content: BridgeContent,
+    generatedText: String,
     passages: List<CurriculumChunk>,
 ): GroundingResult {
     val passageText = passages.joinToString("\n\n") { "[${it.chunkId}] ${it.text}" }
-    val userPrompt =
-        "Bridge question: ${content.bridgeQuestion}\n" +
-            "Bridge answer: ${content.bridgeAnswer}\n" +
-            "Synthesis: ${content.synthesis}\n\n" +
-            "Source passages:\n$passageText"
+    val userPrompt = "Generated material:\n$generatedText\n\nSource passages:\n$passageText"
 
     val payload =
         JSONObject().apply {

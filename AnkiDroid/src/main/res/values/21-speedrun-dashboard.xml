@@ -24,4 +24,22 @@
     <string name="speedrun_confidence_low">Low</string>
     <string name="speedrun_confidence_medium">Medium</string>
     <string name="speedrun_confidence_high">High</string>
+    <!-- Brainlift v3 POV 1: latency volatility -->
+    <string name="speedrun_latency_heading">Latency volatility</string>
+    <string name="speedrun_latency_headline">%1$d of %2$d measurable topics look like pattern-matching</string>
+    <!-- Deliberately not "0 topics" - a volatility of zero reads as a perfect
+         rote pattern, which is the opposite of "not measured yet". -->
+    <string name="speedrun_latency_headline_empty">No topic has two or more graded reviews yet, so there is no spread in response time to measure.</string>
+    <string name="speedrun_latency_method">Volatility is the coefficient of variation (SD ÷ mean) of your response times per topic. Higher is better — it means your timing varies, which is what thinking looks like. The %1$s line is an interpretation of an unitless threshold in the brainlift, not a fitted constant.</string>
+    <string name="speedrun_latency_hidden_topics">(%1$d topic(s) not shown: fewer than two graded reviews, so volatility is undefined rather than zero.)</string>
+
+    <!-- Brainlift v3 POV 2: refusal reasons -->
+    <string name="speedrun_readiness_headline_rote">Readiness: refusing to score — rote pattern detected</string>
+    <string name="speedrun_performance_headline_rote">Performance: refusing to score — rote pattern detected</string>
+    <string name="speedrun_reason_not_enough_reviews">✗ Not enough graded reviews: %1$d of %2$d needed.</string>
+    <string name="speedrun_reason_not_enough_coverage">✗ Not enough topic coverage: %1$d%% of %2$d%% needed.</string>
+    <string name="speedrun_reason_rote_pattern">✗ Rote pattern detected — %1$d%% of measurable topics show near-identical response times (volatility below %2$s); at most %3$d%% is allowed.
+
+This is not a data-volume problem. Reviews that all take the same time look like recognising the card rather than retrieving the fact, so a score computed from them would not mean what it appears to mean.</string>
+    <string name="speedrun_reason_unknown">✗ Refusing to score — the backend did not say which rule failed. That is a bug worth reporting, not a judgement about your studying.</string>
 </resources>

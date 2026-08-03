@@ -1,0 +1,276 @@
+{
+    "_provenance": {
+        "what": "The official AAMC MCAT content outline: 4 sections, 10 foundational concepts, 31 content categories (9 bio/biochem + 10 chem/phys + 12 psych/soc). This is the denominator for the PRD §8 coverage map - 'every topic on the official outline, marked covered or not'.",
+        "authoritative_source": "AAMC, 'What's on the MCAT Exam?' - https://students-residents.aamc.org/prepare-mcat-exam/whats-mcat-exam-pdf-outline",
+        "how_this_was_built": "Content category codes and titles were transcribed from a third-party compilation (https://medlifemastery.com/mcat/content-review/aamc-outline/) and then spot-verified directly against AAMC's own pages. Verified verbatim against AAMC: Foundational Concept 1's statement and categories 1A/1B/1C/1D (https://students-residents.aamc.org/biological-and-biochemical-foundations-living-systems/biological-and-biochemical-foundations-living-systems-foundational-concept-1), category 4A (https://students-residents.aamc.org/chemical-and-physical-foundations-biological-systems-foundational-concept-4/chemical-and-physical-foundations-biological-systems-section-content-category-4a), and category 10A (https://students-residents.aamc.org/applying-medical-school/article/mcat-2015-content-category-10a/). The remaining categories match that same compilation, which agreed exactly with AAMC on every spot-check; they were NOT each individually re-verified against AAMC. Stated plainly rather than implied: this file is a faithful transcription with partial direct verification, not a scrape of the official PDF.",
+        "foundational_concept_statements": "Only FC1's statement is reproduced verbatim from AAMC (it was the one fetched directly). The others are omitted rather than paraphrased from memory - an outline is a factual document and inventing its wording would be exactly the kind of thing this project's honesty rule forbids.",
+        "topic_tag_mapping": "The `topic_tags` arrays are OURS, not AAMC's. They map this collection's `topic::<name>` tags onto content categories. Categories with tags have real curriculum source material behind them in speedrun/ai/ (see sources.json) and cards generated from it - a tag is only added here once genuine source content exists for that category, never to make the coverage number look better. Categories with no tags have no material yet; that is the honest state and is precisely what the coverage map is supposed to expose.",
+        "dok_profile": "Typical Depth-of-Knowledge range per MCAT section, used by the v3 give-up rule to decide which topics the latency-volatility (rote-pattern) check should be applied to. PROVENANCE, STATED PLAINLY: these ranges are NOT published by AAMC. They were derived from user-supplied research on Socratic-method effectiveness by section, which classified sections by the depth of reasoning their items demand. That research's strongest specific figure (r = 0.457) traced to an undergraduate senior thesis, n = 34, p > 0.01, and correlational; its remaining claims arrived as bracketed citations without resolvable sources and were never independently verified. The DOK ranges are therefore a defensible editorial judgement about exam structure, not a sourced fact, and should be treated as tunable configuration rather than ground truth. The original per-section Socratic bridge policy that shipped alongside these ranges was removed with the v2 tutor (see speedrun/docs/pivot-plan-latency-volatility.md Phase 1); only the DOK ranges survived, because v3 needs to know which content is reasoning-heavy. LIMITATION, UNCHANGED: DOK is really a property of a card, not a section - amino acid structures are DOK 1 rote even though bio/biochem is a reasoning-heavy section. Per-card DOK labelling is not built, so a `dok::N` note tag overrides the section default where it matters."
+    },
+    "scale": {
+        "total": [472, 528],
+        "per_section": [118, 132]
+    },
+    "sections": [
+        {
+            "id": "bio_biochem",
+            "name": "Biological and Biochemical Foundations of Living Systems",
+            "has_content_outline": true,
+            "foundational_concepts": [
+                {
+                    "id": "FC1",
+                    "statement": "Biomolecules have unique properties that determine how they contribute to the structure and function of cells, and how they participate in the processes necessary to maintain life.",
+                    "statement_source": "verbatim from AAMC",
+                    "content_categories": [
+                        {
+                            "id": "1A",
+                            "title": "Structure and function of proteins and their constituent amino acids",
+                            "topic_tags": ["topic::amino_acids"]
+                        },
+                        {
+                            "id": "1B",
+                            "title": "Transmission of genetic information from the gene to the protein",
+                            "topic_tags": ["topic::central_dogma"]
+                        },
+                        {
+                            "id": "1C",
+                            "title": "Transmission of heritable information from generation to generation and the processes that increase genetic diversity",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "1D",
+                            "title": "Principles of bioenergetics and fuel molecule metabolism",
+                            "topic_tags": ["topic::krebs_cycle", "topic::glycolysis"]
+                        }
+                    ]
+                },
+                {
+                    "id": "FC2",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "2A",
+                            "title": "Assemblies of molecules, cells, and groups of cells within single cellular and multicellular organisms",
+                            "topic_tags": ["topic::cell_biology"]
+                        },
+                        {
+                            "id": "2B",
+                            "title": "The structure, growth, physiology, and genetics of prokaryotes and viruses",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "2C",
+                            "title": "Processes of cell division, differentiation, and specialization",
+                            "topic_tags": ["topic::cell_division"]
+                        }
+                    ]
+                },
+                {
+                    "id": "FC3",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "3A",
+                            "title": "Structure and functions of the nervous and endocrine systems and ways in which these systems coordinate the organ systems",
+                            "topic_tags": ["topic::endocrine", "topic::neuromuscular"]
+                        },
+                        {
+                            "id": "3B",
+                            "title": "Structure and integrative functions of the main organ systems",
+                            "topic_tags": []
+                        }
+                    ]
+                }
+            ],
+            "dok_profile": {
+                "dok_range": [2, 3],
+                "rationale": "Systems and mechanisms: questions ask you to reason along a pathway, so retrieval is usually reconstruction rather than lookup."
+            }
+        },
+        {
+            "id": "chem_phys",
+            "name": "Chemical and Physical Foundations of Biological Systems",
+            "has_content_outline": true,
+            "foundational_concepts": [
+                {
+                    "id": "FC4",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "4A",
+                            "title": "Translational motion, forces, work, energy, and equilibrium in living systems",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "4B",
+                            "title": "Importance of fluids for the circulation of blood, gas movement, and gas exchange",
+                            "topic_tags": ["topic::gas_laws"]
+                        },
+                        {
+                            "id": "4C",
+                            "title": "Electrochemistry and electrical circuits and their elements",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "4D",
+                            "title": "How light and sound interact with matter",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "4E",
+                            "title": "Atoms, nuclear decay, electronic structure, and atomic chemical behavior",
+                            "topic_tags": []
+                        }
+                    ]
+                },
+                {
+                    "id": "FC5",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "5A",
+                            "title": "Unique nature of water and its solutions",
+                            "topic_tags": ["topic::water_solutions"]
+                        },
+                        {
+                            "id": "5B",
+                            "title": "Nature of molecules and intermolecular interactions",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "5C",
+                            "title": "Separation and purification methods",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "5D",
+                            "title": "Structure, function, and reactivity of biologically-relevant molecules",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "5E",
+                            "title": "Principles of chemical thermodynamics and kinetics",
+                            "topic_tags": ["topic::thermo_kinetics"]
+                        }
+                    ]
+                }
+            ],
+            "dok_profile": {
+                "dok_range": [2, 3],
+                "rationale": "Quantitative relationships: questions ask what happens to Y when X changes, so retrieval usually involves a derivation step."
+            }
+        },
+        {
+            "id": "psych_soc",
+            "name": "Psychological, Social, and Biological Foundations of Behavior",
+            "has_content_outline": true,
+            "foundational_concepts": [
+                {
+                    "id": "FC6",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "6A",
+                            "title": "Sensing the environment",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "6B",
+                            "title": "Making sense of the environment",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "6C",
+                            "title": "Responding to the world",
+                            "topic_tags": []
+                        }
+                    ]
+                },
+                {
+                    "id": "FC7",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "7A",
+                            "title": "Individual influences on behavior",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "7B",
+                            "title": "Social processes that influence human behavior",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "7C",
+                            "title": "Attitude and behavior change",
+                            "topic_tags": []
+                        }
+                    ]
+                },
+                {
+                    "id": "FC8",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "8A",
+                            "title": "Self-identity",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "8B",
+                            "title": "Social thinking",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "8C",
+                            "title": "Social interactions",
+                            "topic_tags": []
+                        }
+                    ]
+                },
+                {
+                    "id": "FC9",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "9A",
+                            "title": "Understanding social structure",
+                            "topic_tags": []
+                        },
+                        {
+                            "id": "9B",
+                            "title": "Demographic characteristics and processes",
+                            "topic_tags": []
+                        }
+                    ]
+                },
+                {
+                    "id": "FC10",
+                    "statement": null,
+                    "content_categories": [
+                        {
+                            "id": "10A",
+                            "title": "Social inequality",
+                            "topic_tags": []
+                        }
+                    ]
+                }
+            ],
+            "dok_profile": {
+                "dok_range": [1, 2],
+                "rationale": "Largely definitional: much of this section is terminology and named theories, where correct retrieval is genuine lookup."
+            }
+        },
+        {
+            "id": "cars",
+            "name": "Critical Analysis and Reasoning Skills",
+            "has_content_outline": false,
+            "no_outline_reason": "CARS has no memorizable content outline - it is a pure reasoning section over passages drawn from humanities and social sciences. A flashcard deck structurally cannot 'cover' it, so it is excluded from the coverage denominator rather than counted as permanently 0% (which would understate coverage in a misleading way). This is a real limitation of a flashcard-based readiness model, not a gap to be papered over: a student at 100% content coverage still has an unmeasured quarter of the exam.",
+            "foundational_concepts": [],
+            "dok_profile": {
+                "dok_range": [3, 4],
+                "rationale": "No memorisable content at all; every item is reasoning over an unseen passage."
+            }
+        }
+    ]
+}

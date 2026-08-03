@@ -34,6 +34,12 @@ import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
 
+/* Must match rslib/src/stats/latency_monitor.rs's ROTE_PATTERN_CV_THRESHOLD.
+ * Used only for highlighting rows; the *decision* to refuse is made in Rust
+ * and arrives with its own threshold attached, so the two can't silently
+ * disagree about the verdict. */
+private const val ROTE_CV_THRESHOLD = 0.2f
+
 /**
  * Speedrun addition: the three-score dashboard (PRD §5), Android side.
  * Mirrors qt/aqt/speedrun_dashboard.py's content and data flow - Memory is
@@ -72,6 +78,7 @@ class ScoreDashboard : AnkiActivity(R.layout.activity_score_dashboard) {
         }
 
         bindMemory(state.mastery)
+        bindLatency(state.mastery)
         bindPerformanceAndReadiness(state.readiness)
 
         binding.lastUpdated.text =
@@ -98,6 +105,93 @@ class ScoreDashboard : AnkiActivity(R.layout.activity_score_dashboard) {
                     "${topic.cardsWithReviews}/${topic.cardsTotal} reviewed"
             }
     }
+
+    /**
+     * Brainlift v3 POV 1. Mirrors the desktop `_latency_group`.
+     *
+     * Only topics with a measured volatility are listed. `hasLatencyVolatility()`
+     * is checked rather than reading the value, because proto3 defaults an
+     * absent float to 0.0 - and 0.0 sits *below* the rote threshold, so a
+     * naive read would present every unstudied topic as a confirmed
+     * spacebar reflex.
+     */
+    private fun bindLatency(mastery: List<anki.stats.TopicMastery>) {
+        val measurable = mastery.filter { it.hasLatencyVolatility() }
+        if (measurable.isEmpty()) {
+            binding.latencyHeadline.text = getString(R.string.speedrun_latency_headline_empty)
+            binding.latencyTable.text = ""
+            binding.latencyMethod.text = ""
+            return
+        }
+
+        val rote = measurable.filter { it.latencyVolatility < ROTE_CV_THRESHOLD }
+        binding.latencyHeadline.text =
+            getString(R.string.speedrun_latency_headline, rote.size, measurable.size)
+
+        val rows =
+            measurable.sortedBy { it.latencyVolatility }.joinToString("\n") { topic ->
+                val flag = if (topic.latencyVolatility < ROTE_CV_THRESHOLD) "  ⚠ rote pattern" else ""
+                val reflex =
+                    if (topic.belowMinReadingTimeCount > 0) {
+                        " · ${topic.belowMinReadingTimeCount} faster than the card can be read"
+                    } else {
+                        ""
+                    }
+                "${topic.topic}: volatility ${"%.2f".format(topic.latencyVolatility)} · " +
+                    "${topic.system1ReviewCount} fast / ${topic.system2ReviewCount} considered$reflex$flag"
+            }
+        val hidden = mastery.size - measurable.size
+        binding.latencyTable.text =
+            if (hidden > 0) {
+                rows + "\n\n" + getString(R.string.speedrun_latency_hidden_topics, hidden)
+            } else {
+                rows
+            }
+        binding.latencyMethod.text =
+            getString(R.string.speedrun_latency_method, "%.2f".format(ROTE_CV_THRESHOLD))
+    }
+
+    /**
+     * One line per rule that actually failed, not just the first.
+     *
+     * The backend returns every failing reason; showing one would send the
+     * student off to grind review count while a second blocker still
+     * stands - and in the rote case it would hide the only reason that
+     * says something about *how* they studied rather than how much.
+     */
+    private fun refusalReasons(insufficient: anki.stats.InsufficientData): String {
+        val lines =
+            insufficient.reasonsList.mapNotNull { reason ->
+                when (reason) {
+                    anki.stats.InsufficientData.Reason.NOT_ENOUGH_REVIEWS ->
+                        getString(
+                            R.string.speedrun_reason_not_enough_reviews,
+                            insufficient.totalGradedReviews,
+                            insufficient.reviewsRequired,
+                        )
+                    anki.stats.InsufficientData.Reason.NOT_ENOUGH_COVERAGE ->
+                        getString(
+                            R.string.speedrun_reason_not_enough_coverage,
+                            (insufficient.topicCoverage * 100).roundToInt(),
+                            (insufficient.coverageRequired * 100).roundToInt(),
+                        )
+                    anki.stats.InsufficientData.Reason.ROTE_PATTERN_DETECTED ->
+                        getString(
+                            R.string.speedrun_reason_rote_pattern,
+                            (insufficient.rotePatternTopicFraction * 100).roundToInt(),
+                            "%.2f".format(insufficient.rotePatternCvThreshold),
+                            (insufficient.rotePatternFractionAllowed * 100).roundToInt(),
+                        )
+                    else -> null
+                }
+            }
+        return if (lines.isEmpty()) getString(R.string.speedrun_reason_unknown) else lines.joinToString("\n\n")
+    }
+
+    /** "Not enough data" is the wrong headline for a rote refusal - there is
+     * plenty of data, and it is the data that is the problem. */
+    private fun isRote(insufficient: anki.stats.InsufficientData) =
+        insufficient.reasonsList.contains(anki.stats.InsufficientData.Reason.ROTE_PATTERN_DETECTED)
 
     private fun bindPerformanceAndReadiness(readiness: ReadinessQueryResponse?) {
         when (readiness?.resultCase) {
@@ -129,16 +223,24 @@ class ScoreDashboard : AnkiActivity(R.layout.activity_score_dashboard) {
             }
             ReadinessQueryResponse.ResultCase.INSUFFICIENT -> {
                 val insufficient = readiness.insufficient
-                binding.performanceHeadline.text = getString(R.string.speedrun_performance_headline_insufficient)
-                binding.performanceDetails.text =
+                val rote = isRote(insufficient)
+                binding.performanceHeadline.text =
                     getString(
-                        R.string.speedrun_give_up_status_refused,
-                        insufficient.totalGradedReviews,
-                        insufficient.reviewsRequired,
-                        (insufficient.topicCoverage * 100).roundToInt(),
-                        (insufficient.coverageRequired * 100).roundToInt(),
+                        if (rote) {
+                            R.string.speedrun_performance_headline_rote
+                        } else {
+                            R.string.speedrun_performance_headline_insufficient
+                        },
                     )
-                binding.readinessHeadline.text = getString(R.string.speedrun_readiness_headline_insufficient)
+                binding.performanceDetails.text = refusalReasons(insufficient)
+                binding.readinessHeadline.text =
+                    getString(
+                        if (rote) {
+                            R.string.speedrun_readiness_headline_rote
+                        } else {
+                            R.string.speedrun_readiness_headline_insufficient
+                        },
+                    )
                 binding.readinessDetails.text = ""
             }
             else -> {

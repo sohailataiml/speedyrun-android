@@ -1,0 +1,54 @@
+{
+    "_provenance": "Manifest of curriculum source documents, each mapped to the AAMC content category it covers and the topic:: tag its generated cards carry. All source documents are original content written for this project - see each file's own provenance note. This manifest is what speedrun/tools/ai-cardgen/generate_coverage_cards.py iterates over, and what makes the coverage map's denominator meaningful: adding a category here means writing real source material for it, not relabelling existing cards.",
+    "_why_separate_from_generate_py": "generate.py remains pointed at source_material.md alone and is deliberately untouched. Its output feeds the gold-set eval (98% vs 0%) and the leakage check, both already run and reported in speedrun/docs/ai-subsystem.md; regenerating it would invalidate those numbers for no benefit.",
+    "sources": [
+        {
+            "file": "source_material.md",
+            "chunk_prefix": "kc",
+            "topic_tag": "topic::krebs_cycle",
+            "content_category": "1D",
+            "title": "Citric acid cycle",
+            "generated_by": "generate.py (original 50-card run)"
+        },
+        {
+            "file": "source_material_amino_acids.md",
+            "chunk_prefix": "aa",
+            "topic_tag": "topic::amino_acids",
+            "content_category": "1A",
+            "title": "Amino acids and protein structure",
+            "generated_by": "generate_coverage_cards.py"
+        },
+        {
+            "file": "source_material_central_dogma.md",
+            "chunk_prefix": "cd",
+            "topic_tag": "topic::central_dogma",
+            "content_category": "1B",
+            "title": "From gene to protein",
+            "generated_by": "generate_coverage_cards.py"
+        },
+        {
+            "file": "source_material_cell_division.md",
+            "chunk_prefix": "cx",
+            "topic_tag": "topic::cell_division",
+            "content_category": "2C",
+            "title": "Cell division and differentiation",
+            "generated_by": "generate_coverage_cards.py"
+        },
+        {
+            "file": "source_material_water_solutions.md",
+            "chunk_prefix": "wa",
+            "topic_tag": "topic::water_solutions",
+            "content_category": "5A",
+            "title": "Water, solutions, acids and bases",
+            "generated_by": "generate_coverage_cards.py"
+        },
+        {
+            "file": "source_material_thermo_kinetics.md",
+            "chunk_prefix": "tk",
+            "topic_tag": "topic::thermo_kinetics",
+            "content_category": "5E",
+            "title": "Chemical thermodynamics and kinetics",
+            "generated_by": "generate_coverage_cards.py"
+        }
+    ]
+}
