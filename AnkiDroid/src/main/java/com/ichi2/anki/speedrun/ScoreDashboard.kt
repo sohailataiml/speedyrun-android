@@ -210,6 +210,20 @@ class ScoreDashboard : AnkiActivity(R.layout.activity_score_dashboard) {
                         performance.inputs.totalGradedReviews,
                         (performance.inputs.topicCoverage * 100).roundToInt(),
                     )
+                // hasJitterAccuracy(), not the value: proto3 defaults an
+                // absent float to 0.0, which would tell a student who has
+                // never been asked a transfer question that they got every
+                // one of them wrong.
+                binding.jitterDetails.text =
+                    if (performance.hasJitterAccuracy()) {
+                        getString(
+                            R.string.speedrun_jitter_accuracy,
+                            (performance.jitterAccuracy * 100).roundToInt(),
+                            performance.jitterAttempts,
+                        )
+                    } else {
+                        getString(R.string.speedrun_jitter_not_measured)
+                    }
 
                 binding.readinessHeadline.text =
                     getString(R.string.speedrun_readiness_headline, data.projectedScore)
@@ -220,6 +234,19 @@ class ScoreDashboard : AnkiActivity(R.layout.activity_score_dashboard) {
                         data.rangeHigh,
                         confidenceLabel(data.confidence),
                     )
+                // A marked-down score has to be able to say so. Hidden
+                // entirely when no penalty applied - a "no penalty" line
+                // on every honest deck is noise.
+                val penalised = data.latencyVolatilityWeight < 0.999f
+                binding.reflexPenalty.isVisible = penalised
+                if (penalised) {
+                    binding.reflexPenalty.text =
+                        getString(
+                            R.string.speedrun_reflex_penalty,
+                            (data.latencyVolatilityWeight * 100).roundToInt(),
+                            data.spacebarReflexReviews,
+                        )
+                }
             }
             ReadinessQueryResponse.ResultCase.INSUFFICIENT -> {
                 val insufficient = readiness.insufficient
@@ -242,11 +269,15 @@ class ScoreDashboard : AnkiActivity(R.layout.activity_score_dashboard) {
                         },
                     )
                 binding.readinessDetails.text = ""
+                binding.jitterDetails.text = ""
+                binding.reflexPenalty.isVisible = false
             }
             else -> {
                 binding.performanceHeadline.text = getString(R.string.speedrun_performance_headline_unavailable)
                 binding.readinessHeadline.text = ""
                 binding.readinessDetails.text = ""
+                binding.jitterDetails.text = ""
+                binding.reflexPenalty.isVisible = false
             }
         }
     }

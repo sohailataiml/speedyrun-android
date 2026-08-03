@@ -42,4 +42,13 @@
 
 This is not a data-volume problem. Reviews that all take the same time look like recognising the card rather than retrieving the fact, so a score computed from them would not mean what it appears to mean.</string>
     <string name="speedrun_reason_unknown">✗ Refusing to score — the backend did not say which rule failed. That is a bug worth reporting, not a judgement about your studying.</string>
+    <!-- Brainlift v3 POV 3: transfer (jitter) accuracy -->
+    <string name="speedrun_jitter_accuracy">Transfer (jitter) accuracy: %1$d%% over %2$d context-shifted variant(s) — the same principle asked in a situation you haven\'t seen.</string>
+    <!-- Deliberately not "0%%": no variant answered yet is a different
+         claim from getting them all wrong. -->
+    <string name="speedrun_jitter_not_measured">Transfer (jitter) accuracy: not measured yet — no context-shifted variant has been answered.</string>
+
+    <!-- Brainlift v3 §8: the spacebar-reflex discount, shown rather than
+         folded silently into the projected score. -->
+    <string name="speedrun_reflex_penalty">⚠ Score reduced to %1$d%% of the model\'s estimate: %2$d review(s) were answered faster than the card could be read. Those count half, because a review that outran the prompt is not evidence of recall.</string>
 </resources>
